@@ -77,9 +77,16 @@ func main() {
 	// the HTTP handler or the gRPC server, are the bridge between Go kit and
 	// the interfaces that the transports expect. Note that we're not binding
 	// them to ports or anything yet; we'll do that next.
+
+	var s addservice.Service
+	{
+		s = addservice.NewBasicService()
+		s = addservice.LoggingMiddleware(logger)(s)
+		s = addservice.InstrumentingMiddleware(ints, chars)(s)
+	}
+
 	var (
-		service     = addservice.New(logger, ints, chars)
-		endpoints   = addsvc.MakeServerEndpoints(service, duration)
+		endpoints   = addsvc.MakeServerEndpoints(s, duration)
 		httpHandler = addsvc.NewHTTPHandler(endpoints, log.With(logger, "component", "HTTP"))
 	)
 
