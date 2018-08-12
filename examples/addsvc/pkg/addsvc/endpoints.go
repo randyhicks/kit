@@ -29,13 +29,12 @@ type Endpoints struct {
 
 // MakeServerEndpoints returns a Endpoints that wraps the provided server, and wires in all of the
 // expected endpoint middlewares via the various parameters.
-func MakeServerEndpoints(svc addservice.Service, logger log.Logger, duration metrics.Histogram) Endpoints {
+func MakeServerEndpoints(svc addservice.Service, duration metrics.Histogram) Endpoints {
 	var sumEndpoint endpoint.Endpoint
 	{
 		sumEndpoint = MakeSumEndpoint(svc)
 		sumEndpoint = ratelimit.NewErroringLimiter(rate.NewLimiter(rate.Every(time.Second), 1))(sumEndpoint)
 		sumEndpoint = circuitbreaker.Gobreaker(gobreaker.NewCircuitBreaker(gobreaker.Settings{}))(sumEndpoint)
-		sumEndpoint = LoggingMiddleware(log.With(logger, "method", "Sum"))(sumEndpoint)
 		sumEndpoint = InstrumentingMiddleware(duration.With("method", "Sum"))(sumEndpoint)
 	}
 	var concatEndpoint endpoint.Endpoint
@@ -43,7 +42,6 @@ func MakeServerEndpoints(svc addservice.Service, logger log.Logger, duration met
 		concatEndpoint = MakeConcatEndpoint(svc)
 		concatEndpoint = ratelimit.NewErroringLimiter(rate.NewLimiter(rate.Every(time.Second), 100))(concatEndpoint)
 		concatEndpoint = circuitbreaker.Gobreaker(gobreaker.NewCircuitBreaker(gobreaker.Settings{}))(concatEndpoint)
-		concatEndpoint = LoggingMiddleware(log.With(logger, "method", "Concat"))(concatEndpoint)
 		concatEndpoint = InstrumentingMiddleware(duration.With("method", "Concat"))(concatEndpoint)
 	}
 	return Endpoints{

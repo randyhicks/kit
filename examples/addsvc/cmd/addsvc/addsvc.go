@@ -79,8 +79,8 @@ func main() {
 	// them to ports or anything yet; we'll do that next.
 	var (
 		service     = addservice.New(logger, ints, chars)
-		endpoints   = addsvc.MakeServerEndpoints(service, logger, duration)
-		httpHandler = addsvc.NewHTTPHandler(endpoints, logger)
+		endpoints   = addsvc.MakeServerEndpoints(service, duration)
+		httpHandler = addsvc.NewHTTPHandler(endpoints, log.With(logger, "component", "HTTP"))
 	)
 
 	// Now we're to the part of the func main where we want to start actually
