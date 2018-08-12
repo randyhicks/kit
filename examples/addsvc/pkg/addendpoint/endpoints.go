@@ -21,17 +21,17 @@ import (
 	"github.com/go-kit/kit/examples/addsvc/pkg/addservice"
 )
 
-// Set collects all of the endpoints that compose an add service. It's meant to
+// Endpoints collects all of the endpoints that compose an add service. It's meant to
 // be used as a helper struct, to collect all of the endpoints into a single
 // parameter.
-type Set struct {
+type Endpoints struct {
 	SumEndpoint    endpoint.Endpoint
 	ConcatEndpoint endpoint.Endpoint
 }
 
-// New returns a Set that wraps the provided server, and wires in all of the
+// New returns a Endpoints that wraps the provided server, and wires in all of the
 // expected endpoint middlewares via the various parameters.
-func New(svc addservice.Service, logger log.Logger, duration metrics.Histogram, otTracer stdopentracing.Tracer, zipkinTracer *stdzipkin.Tracer) Set {
+func New(svc addservice.Service, logger log.Logger, duration metrics.Histogram, otTracer stdopentracing.Tracer, zipkinTracer *stdzipkin.Tracer) Endpoints {
 	var sumEndpoint endpoint.Endpoint
 	{
 		sumEndpoint = MakeSumEndpoint(svc)
@@ -52,7 +52,7 @@ func New(svc addservice.Service, logger log.Logger, duration metrics.Histogram, 
 		concatEndpoint = LoggingMiddleware(log.With(logger, "method", "Concat"))(concatEndpoint)
 		concatEndpoint = InstrumentingMiddleware(duration.With("method", "Concat"))(concatEndpoint)
 	}
-	return Set{
+	return Endpoints{
 		SumEndpoint:    sumEndpoint,
 		ConcatEndpoint: concatEndpoint,
 	}
@@ -60,7 +60,7 @@ func New(svc addservice.Service, logger log.Logger, duration metrics.Histogram, 
 
 // Sum implements the service interface, so Set may be used as a service.
 // This is primarily useful in the context of a client library.
-func (s Set) Sum(ctx context.Context, a, b int) (int, error) {
+func (s Endpoints) Sum(ctx context.Context, a, b int) (int, error) {
 	resp, err := s.SumEndpoint(ctx, SumRequest{A: a, B: b})
 	if err != nil {
 		return 0, err
@@ -71,7 +71,7 @@ func (s Set) Sum(ctx context.Context, a, b int) (int, error) {
 
 // Concat implements the service interface, so Set may be used as a
 // service. This is primarily useful in the context of a client library.
-func (s Set) Concat(ctx context.Context, a, b string) (string, error) {
+func (s Endpoints) Concat(ctx context.Context, a, b string) (string, error) {
 	resp, err := s.ConcatEndpoint(ctx, ConcatRequest{A: a, B: b})
 	if err != nil {
 		return "", err
