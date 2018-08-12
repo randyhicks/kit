@@ -12,7 +12,6 @@ import (
 
 	"github.com/go-kit/kit/circuitbreaker"
 	"github.com/go-kit/kit/endpoint"
-	"github.com/go-kit/kit/log"
 	"github.com/go-kit/kit/metrics"
 	"github.com/go-kit/kit/ratelimit"
 	httptransport "github.com/go-kit/kit/transport/http"
@@ -54,7 +53,7 @@ func MakeServerEndpoints(svc addservice.Service, duration metrics.Histogram) End
 // remote instance. We expect instance to come from a service discovery system,
 // so likely of the form "host:port". We bake-in certain middlewares,
 // implementing the client library pattern.
-func MakeClientEndpoints(instance string, logger log.Logger) (Endpoints, error) {
+func MakeClientEndpoints(instance string) (Endpoints, error) {
 	// Quickly sanitize the instance string.
 	if !strings.HasPrefix(instance, "http") {
 		instance = "http://" + instance

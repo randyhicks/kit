@@ -11,6 +11,7 @@ import (
 	"github.com/go-kit/kit/endpoint"
 	"github.com/go-kit/kit/log"
 	httptransport "github.com/go-kit/kit/transport/http"
+	"github.com/gorilla/mux"
 
 	"github.com/randyhicks/kit/examples/addsvc/pkg/addservice"
 )
@@ -18,25 +19,27 @@ import (
 // NewHTTPHandler returns an HTTP handler that makes a set of endpoints
 // available on predefined paths.
 func NewHTTPHandler(e Endpoints, logger log.Logger) http.Handler {
+	r := mux.NewRouter()
 	options := []httptransport.ServerOption{
 		httptransport.ServerErrorEncoder(errorEncoder),
 		httptransport.ServerErrorLogger(logger),
 	}
 
-	m := http.NewServeMux()
-	m.Handle("/sum", httptransport.NewServer(
+	r.Methods("POST").Path("/sum").Handler(httptransport.NewServer(
 		e.SumEndpoint,
 		decodeHTTPSumRequest,
 		encodeHTTPGenericResponse,
 		options...,
 	))
-	m.Handle("/concat", httptransport.NewServer(
+
+	r.Methods("POST").Path("/concat").Handler(httptransport.NewServer(
 		e.ConcatEndpoint,
 		decodeHTTPConcatRequest,
 		encodeHTTPGenericResponse,
 		options...,
 	))
-	return m
+
+	return r
 }
 
 func errorEncoder(_ context.Context, err error, w http.ResponseWriter) {
