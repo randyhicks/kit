@@ -7,11 +7,7 @@ import (
 	"os"
 	"strconv"
 	"text/tabwriter"
-	"time"
 
-	"google.golang.org/grpc"
-
-	"github.com/apache/thrift/lib/go/thrift"
 	lightstep "github.com/lightstep/lightstep-tracer-go"
 	stdopentracing "github.com/opentracing/opentracing-go"
 	zipkinot "github.com/openzipkin-contrib/zipkin-go-opentracing"
@@ -24,7 +20,6 @@ import (
 
 	"github.com/go-kit/kit/examples/addsvc/pkg/addservice"
 	"github.com/go-kit/kit/examples/addsvc/pkg/addtransport"
-	addthrift "github.com/go-kit/kit/examples/addsvc/thrift/gen-go/addsvc"
 )
 
 func main() {
@@ -37,12 +32,6 @@ func main() {
 	fs := flag.NewFlagSet("addcli", flag.ExitOnError)
 	var (
 		httpAddr       = fs.String("http-addr", "", "HTTP address of addsvc")
-		grpcAddr       = fs.String("grpc-addr", "", "gRPC address of addsvc")
-		thriftAddr     = fs.String("thrift-addr", "", "Thrift address of addsvc")
-		jsonRPCAddr    = fs.String("jsonrpc-addr", "", "JSON RPC address of addsvc")
-		thriftProtocol = fs.String("thrift-protocol", "binary", "binary, compact, json, simplejson")
-		thriftBuffer   = fs.Int("thrift-buffer", 0, "0 for unbuffered")
-		thriftFramed   = fs.Bool("thrift-framed", false, "true to enable framing")
 		zipkinV2URL    = fs.String("zipkin-url", "", "Enable Zipkin v2 tracing (zipkin-go) via HTTP Reporter URL e.g. http://localhost:9411/api/v2/spans")
 		zipkinV1URL    = fs.String("zipkin-v1-url", "", "Enable Zipkin v1 tracing (zipkin-go-opentracing) via a collector URL e.g. http://localhost:9411/api/v1/spans")
 		lightstepToken = fs.String("lightstep-token", "", "Enable LightStep tracing via a LightStep access token")
@@ -120,60 +109,6 @@ func main() {
 	)
 	if *httpAddr != "" {
 		svc, err = addtransport.NewHTTPClient(*httpAddr, otTracer, zipkinTracer, log.NewNopLogger())
-	} else if *grpcAddr != "" {
-		conn, err := grpc.Dial(*grpcAddr, grpc.WithInsecure(), grpc.WithTimeout(time.Second))
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "error: %v", err)
-			os.Exit(1)
-		}
-		defer conn.Close()
-		svc = addtransport.NewGRPCClient(conn, otTracer, zipkinTracer, log.NewNopLogger())
-	} else if *jsonRPCAddr != "" {
-		svc, err = addtransport.NewJSONRPCClient(*jsonRPCAddr, otTracer, log.NewNopLogger())
-	} else if *thriftAddr != "" {
-		// It's necessary to do all of this construction in the func main,
-		// because (among other reasons) we need to control the lifecycle of the
-		// Thrift transport, i.e. close it eventually.
-		var protocolFactory thrift.TProtocolFactory
-		switch *thriftProtocol {
-		case "compact":
-			protocolFactory = thrift.NewTCompactProtocolFactory()
-		case "simplejson":
-			protocolFactory = thrift.NewTSimpleJSONProtocolFactory()
-		case "json":
-			protocolFactory = thrift.NewTJSONProtocolFactory()
-		case "binary", "":
-			protocolFactory = thrift.NewTBinaryProtocolFactoryDefault()
-		default:
-			fmt.Fprintf(os.Stderr, "error: invalid protocol %q\n", *thriftProtocol)
-			os.Exit(1)
-		}
-		var transportFactory thrift.TTransportFactory
-		if *thriftBuffer > 0 {
-			transportFactory = thrift.NewTBufferedTransportFactory(*thriftBuffer)
-		} else {
-			transportFactory = thrift.NewTTransportFactory()
-		}
-		if *thriftFramed {
-			transportFactory = thrift.NewTFramedTransportFactory(transportFactory)
-		}
-		transportSocket, err := thrift.NewTSocket(*thriftAddr)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "error: %v\n", err)
-			os.Exit(1)
-		}
-		transport, err := transportFactory.GetTransport(transportSocket)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "error: %v\n", err)
-			os.Exit(1)
-		}
-		if err := transport.Open(); err != nil {
-			fmt.Fprintf(os.Stderr, "error: %v\n", err)
-			os.Exit(1)
-		}
-		defer transport.Close()
-		client := addthrift.NewAddServiceClientFactory(transport, protocolFactory)
-		svc = addtransport.NewThriftClient(client)
 	} else {
 		fmt.Fprintf(os.Stderr, "error: no remote address specified\n")
 		os.Exit(1)

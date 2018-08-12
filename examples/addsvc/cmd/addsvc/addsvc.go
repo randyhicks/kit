@@ -10,7 +10,6 @@ import (
 	"syscall"
 	"text/tabwriter"
 
-	"github.com/apache/thrift/lib/go/thrift"
 	lightstep "github.com/lightstep/lightstep-tracer-go"
 	"github.com/oklog/oklog/pkg/group"
 	stdopentracing "github.com/opentracing/opentracing-go"
@@ -19,20 +18,16 @@ import (
 	zipkinhttp "github.com/openzipkin/zipkin-go/reporter/http"
 	stdprometheus "github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
-	"google.golang.org/grpc"
 	"sourcegraph.com/sourcegraph/appdash"
 	appdashot "sourcegraph.com/sourcegraph/appdash/opentracing"
 
 	"github.com/go-kit/kit/log"
 	"github.com/go-kit/kit/metrics"
 	"github.com/go-kit/kit/metrics/prometheus"
-	kitgrpc "github.com/go-kit/kit/transport/grpc"
 
-	addpb "github.com/go-kit/kit/examples/addsvc/pb"
 	"github.com/go-kit/kit/examples/addsvc/pkg/addendpoint"
 	"github.com/go-kit/kit/examples/addsvc/pkg/addservice"
 	"github.com/go-kit/kit/examples/addsvc/pkg/addtransport"
-	addthrift "github.com/go-kit/kit/examples/addsvc/thrift/gen-go/addsvc"
 )
 
 func main() {
@@ -43,12 +38,6 @@ func main() {
 	var (
 		debugAddr      = fs.String("debug.addr", ":8080", "Debug and metrics listen address")
 		httpAddr       = fs.String("http-addr", ":8081", "HTTP listen address")
-		grpcAddr       = fs.String("grpc-addr", ":8082", "gRPC listen address")
-		thriftAddr     = fs.String("thrift-addr", ":8083", "Thrift listen address")
-		jsonRPCAddr    = fs.String("jsonrpc-addr", ":8084", "JSON RPC listen address")
-		thriftProtocol = fs.String("thrift-protocol", "binary", "binary, compact, json, simplejson")
-		thriftBuffer   = fs.Int("thrift-buffer", 0, "0 for unbuffered")
-		thriftFramed   = fs.Bool("thrift-framed", false, "true to enable framing")
 		zipkinV2URL    = fs.String("zipkin-url", "", "Enable Zipkin v2 tracing (zipkin-go) using a Reporter URL e.g. http://localhost:9411/api/v2/spans")
 		zipkinV1URL    = fs.String("zipkin-v1-url", "", "Enable Zipkin v1 tracing (zipkin-go-opentracing) using a collector URL e.g. http://localhost:9411/api/v1/spans")
 		lightstepToken = fs.String("lightstep-token", "", "Enable LightStep tracing via a LightStep access token")
@@ -162,12 +151,9 @@ func main() {
 	// the interfaces that the transports expect. Note that we're not binding
 	// them to ports or anything yet; we'll do that next.
 	var (
-		service        = addservice.New(logger, ints, chars)
-		endpoints      = addendpoint.New(service, logger, duration, tracer, zipkinTracer)
-		httpHandler    = addtransport.NewHTTPHandler(endpoints, tracer, zipkinTracer, logger)
-		grpcServer     = addtransport.NewGRPCServer(endpoints, tracer, zipkinTracer, logger)
-		thriftServer   = addtransport.NewThriftServer(endpoints)
-		jsonrpcHandler = addtransport.NewJSONRPCHandler(endpoints, logger)
+		service     = addservice.New(logger, ints, chars)
+		endpoints   = addendpoint.New(service, logger, duration, tracer, zipkinTracer)
+		httpHandler = addtransport.NewHTTPHandler(endpoints, tracer, zipkinTracer, logger)
 	)
 
 	// Now we're to the part of the func main where we want to start actually
@@ -209,80 +195,6 @@ func main() {
 		g.Add(func() error {
 			logger.Log("transport", "HTTP", "addr", *httpAddr)
 			return http.Serve(httpListener, httpHandler)
-		}, func(error) {
-			httpListener.Close()
-		})
-	}
-	{
-		// The gRPC listener mounts the Go kit gRPC server we created.
-		grpcListener, err := net.Listen("tcp", *grpcAddr)
-		if err != nil {
-			logger.Log("transport", "gRPC", "during", "Listen", "err", err)
-			os.Exit(1)
-		}
-		g.Add(func() error {
-			logger.Log("transport", "gRPC", "addr", *grpcAddr)
-			// we add the Go Kit gRPC Interceptor to our gRPC service as it is used by
-			// the here demonstrated zipkin tracing middleware.
-			baseServer := grpc.NewServer(grpc.UnaryInterceptor(kitgrpc.Interceptor))
-			addpb.RegisterAddServer(baseServer, grpcServer)
-			return baseServer.Serve(grpcListener)
-		}, func(error) {
-			grpcListener.Close()
-		})
-	}
-	{
-		// The Thrift socket mounts the Go kit Thrift server we created earlier.
-		// There's a lot of boilerplate involved here, related to configuring
-		// the protocol and transport; blame Thrift.
-		thriftSocket, err := thrift.NewTServerSocket(*thriftAddr)
-		if err != nil {
-			logger.Log("transport", "Thrift", "during", "Listen", "err", err)
-			os.Exit(1)
-		}
-		g.Add(func() error {
-			logger.Log("transport", "Thrift", "addr", *thriftAddr)
-			var protocolFactory thrift.TProtocolFactory
-			switch *thriftProtocol {
-			case "binary":
-				protocolFactory = thrift.NewTBinaryProtocolFactoryDefault()
-			case "compact":
-				protocolFactory = thrift.NewTCompactProtocolFactory()
-			case "json":
-				protocolFactory = thrift.NewTJSONProtocolFactory()
-			case "simplejson":
-				protocolFactory = thrift.NewTSimpleJSONProtocolFactory()
-			default:
-				return fmt.Errorf("invalid Thrift protocol %q", *thriftProtocol)
-			}
-			var transportFactory thrift.TTransportFactory
-			if *thriftBuffer > 0 {
-				transportFactory = thrift.NewTBufferedTransportFactory(*thriftBuffer)
-			} else {
-				transportFactory = thrift.NewTTransportFactory()
-			}
-			if *thriftFramed {
-				transportFactory = thrift.NewTFramedTransportFactory(transportFactory)
-			}
-			return thrift.NewTSimpleServer4(
-				addthrift.NewAddServiceProcessor(thriftServer),
-				thriftSocket,
-				transportFactory,
-				protocolFactory,
-			).Serve()
-		}, func(error) {
-			thriftSocket.Close()
-		})
-	}
-	{
-		httpListener, err := net.Listen("tcp", *jsonRPCAddr)
-		if err != nil {
-			logger.Log("transport", "JSONRPC over HTTP", "during", "Listen", "err", err)
-			os.Exit(1)
-		}
-		g.Add(func() error {
-			logger.Log("transport", "JSONRPC over HTTP", "addr", *jsonRPCAddr)
-			return http.Serve(httpListener, jsonrpcHandler)
 		}, func(error) {
 			httpListener.Close()
 		})
