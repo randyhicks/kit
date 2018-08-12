@@ -13,36 +13,24 @@ import (
 
 	"golang.org/x/time/rate"
 
-	stdopentracing "github.com/opentracing/opentracing-go"
-	stdzipkin "github.com/openzipkin/zipkin-go"
 	"github.com/sony/gobreaker"
 
 	"github.com/go-kit/kit/circuitbreaker"
 	"github.com/go-kit/kit/endpoint"
 	"github.com/go-kit/kit/log"
 	"github.com/go-kit/kit/ratelimit"
-	"github.com/go-kit/kit/tracing/opentracing"
-	"github.com/go-kit/kit/tracing/zipkin"
 	httptransport "github.com/go-kit/kit/transport/http"
 
-	"github.com/go-kit/kit/examples/addsvc/pkg/addendpoint"
-	"github.com/go-kit/kit/examples/addsvc/pkg/addservice"
+	"github.com/randyhicks/kit/examples/addsvc/pkg/addendpoint"
+	"github.com/randyhicks/kit/examples/addsvc/pkg/addservice"
 )
 
 // NewHTTPHandler returns an HTTP handler that makes a set of endpoints
 // available on predefined paths.
-func NewHTTPHandler(endpoints addendpoint.Set, otTracer stdopentracing.Tracer, zipkinTracer *stdzipkin.Tracer, logger log.Logger) http.Handler {
-	// Zipkin HTTP Server Trace can either be instantiated per endpoint with a
-	// provided operation name or a global tracing service can be instantiated
-	// without an operation name and fed to each Go kit endpoint as ServerOption.
-	// In the latter case, the operation name will be the endpoint's http method.
-	// We demonstrate a global tracing service here.
-	zipkinServer := zipkin.HTTPServerTrace(zipkinTracer)
-
+func NewHTTPHandler(endpoints addendpoint.Endpoints, logger log.Logger) http.Handler {
 	options := []httptransport.ServerOption{
 		httptransport.ServerErrorEncoder(errorEncoder),
 		httptransport.ServerErrorLogger(logger),
-		zipkinServer,
 	}
 
 	m := http.NewServeMux()
@@ -50,13 +38,13 @@ func NewHTTPHandler(endpoints addendpoint.Set, otTracer stdopentracing.Tracer, z
 		endpoints.SumEndpoint,
 		decodeHTTPSumRequest,
 		encodeHTTPGenericResponse,
-		append(options, httptransport.ServerBefore(opentracing.HTTPToContext(otTracer, "Sum", logger)))...,
+		options...,
 	))
 	m.Handle("/concat", httptransport.NewServer(
 		endpoints.ConcatEndpoint,
 		decodeHTTPConcatRequest,
 		encodeHTTPGenericResponse,
-		append(options, httptransport.ServerBefore(opentracing.HTTPToContext(otTracer, "Concat", logger)))...,
+		options...,
 	))
 	return m
 }
@@ -65,7 +53,7 @@ func NewHTTPHandler(endpoints addendpoint.Set, otTracer stdopentracing.Tracer, z
 // remote instance. We expect instance to come from a service discovery system,
 // so likely of the form "host:port". We bake-in certain middlewares,
 // implementing the client library pattern.
-func NewHTTPClient(instance string, otTracer stdopentracing.Tracer, zipkinTracer *stdzipkin.Tracer, logger log.Logger) (addservice.Service, error) {
+func NewHTTPClient(instance string, logger log.Logger) (addservice.Service, error) {
 	// Quickly sanitize the instance string.
 	if !strings.HasPrefix(instance, "http") {
 		instance = "http://" + instance
@@ -82,16 +70,8 @@ func NewHTTPClient(instance string, otTracer stdopentracing.Tracer, zipkinTracer
 	// for the entire remote instance, too.
 	limiter := ratelimit.NewErroringLimiter(rate.NewLimiter(rate.Every(time.Second), 100))
 
-	// Zipkin HTTP Client Trace can either be instantiated per endpoint with a
-	// provided operation name or a global tracing client can be instantiated
-	// without an operation name and fed to each Go kit endpoint as ClientOption.
-	// In the latter case, the operation name will be the endpoint's http method.
-	zipkinClient := zipkin.HTTPClientTrace(zipkinTracer)
-
 	// global client middlewares
-	options := []httptransport.ClientOption{
-		zipkinClient,
-	}
+	options := []httptransport.ClientOption{}
 
 	// Each individual endpoint is an http/transport.Client (which implements
 	// endpoint.Endpoint) that gets wrapped with various middlewares. If you
@@ -104,10 +84,8 @@ func NewHTTPClient(instance string, otTracer stdopentracing.Tracer, zipkinTracer
 			copyURL(u, "/sum"),
 			encodeHTTPGenericRequest,
 			decodeHTTPSumResponse,
-			append(options, httptransport.ClientBefore(opentracing.ContextToHTTP(otTracer, logger)))...,
+			options...,
 		).Endpoint()
-		sumEndpoint = opentracing.TraceClient(otTracer, "Sum")(sumEndpoint)
-		sumEndpoint = zipkin.TraceEndpoint(zipkinTracer, "Sum")(sumEndpoint)
 		sumEndpoint = limiter(sumEndpoint)
 		sumEndpoint = circuitbreaker.Gobreaker(gobreaker.NewCircuitBreaker(gobreaker.Settings{
 			Name:    "Sum",
@@ -124,10 +102,8 @@ func NewHTTPClient(instance string, otTracer stdopentracing.Tracer, zipkinTracer
 			copyURL(u, "/concat"),
 			encodeHTTPGenericRequest,
 			decodeHTTPConcatResponse,
-			append(options, httptransport.ClientBefore(opentracing.ContextToHTTP(otTracer, logger)))...,
+			options...,
 		).Endpoint()
-		concatEndpoint = opentracing.TraceClient(otTracer, "Concat")(concatEndpoint)
-		concatEndpoint = zipkin.TraceEndpoint(zipkinTracer, "Concat")(concatEndpoint)
 		concatEndpoint = limiter(concatEndpoint)
 		concatEndpoint = circuitbreaker.Gobreaker(gobreaker.NewCircuitBreaker(gobreaker.Settings{
 			Name:    "Concat",
@@ -138,7 +114,7 @@ func NewHTTPClient(instance string, otTracer stdopentracing.Tracer, zipkinTracer
 	// Returning the endpoint.Set as a service.Service relies on the
 	// endpoint.Set implementing the Service methods. That's just a simple bit
 	// of glue code.
-	return addendpoint.Set{
+	return addendpoint.Endpoints{
 		SumEndpoint:    sumEndpoint,
 		ConcatEndpoint: concatEndpoint,
 	}, nil

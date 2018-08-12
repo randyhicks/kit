@@ -10,38 +10,26 @@ import (
 	"syscall"
 	"text/tabwriter"
 
-	lightstep "github.com/lightstep/lightstep-tracer-go"
 	"github.com/oklog/oklog/pkg/group"
-	stdopentracing "github.com/opentracing/opentracing-go"
-	zipkinot "github.com/openzipkin-contrib/zipkin-go-opentracing"
-	zipkin "github.com/openzipkin/zipkin-go"
-	zipkinhttp "github.com/openzipkin/zipkin-go/reporter/http"
 	stdprometheus "github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
-	"sourcegraph.com/sourcegraph/appdash"
-	appdashot "sourcegraph.com/sourcegraph/appdash/opentracing"
 
 	"github.com/go-kit/kit/log"
 	"github.com/go-kit/kit/metrics"
 	"github.com/go-kit/kit/metrics/prometheus"
 
-	"github.com/go-kit/kit/examples/addsvc/pkg/addendpoint"
-	"github.com/go-kit/kit/examples/addsvc/pkg/addservice"
-	"github.com/go-kit/kit/examples/addsvc/pkg/addtransport"
+	"github.com/randyhicks/kit/examples/addsvc/pkg/addendpoint"
+	"github.com/randyhicks/kit/examples/addsvc/pkg/addservice"
+	"github.com/randyhicks/kit/examples/addsvc/pkg/addtransport"
 )
 
 func main() {
 	// Define our flags. Your service probably won't need to bind listeners for
-	// *all* supported transports, or support both Zipkin and LightStep, and so
 	// on, but we do it here for demonstration purposes.
 	fs := flag.NewFlagSet("addsvc", flag.ExitOnError)
 	var (
-		debugAddr      = fs.String("debug.addr", ":8080", "Debug and metrics listen address")
-		httpAddr       = fs.String("http-addr", ":8081", "HTTP listen address")
-		zipkinV2URL    = fs.String("zipkin-url", "", "Enable Zipkin v2 tracing (zipkin-go) using a Reporter URL e.g. http://localhost:9411/api/v2/spans")
-		zipkinV1URL    = fs.String("zipkin-v1-url", "", "Enable Zipkin v1 tracing (zipkin-go-opentracing) using a collector URL e.g. http://localhost:9411/api/v1/spans")
-		lightstepToken = fs.String("lightstep-token", "", "Enable LightStep tracing via a LightStep access token")
-		appdashAddr    = fs.String("appdash-addr", "", "Enable Appdash tracing via an Appdash server host:port")
+		debugAddr = fs.String("debug.addr", ":8080", "Debug and metrics listen address")
+		httpAddr  = fs.String("http-addr", ":8081", "HTTP listen address")
 	)
 	fs.Usage = usageFor(fs, os.Args[0]+" [flags]")
 	fs.Parse(os.Args[1:])
@@ -52,66 +40,6 @@ func main() {
 		logger = log.NewLogfmtLogger(os.Stderr)
 		logger = log.With(logger, "ts", log.DefaultTimestampUTC)
 		logger = log.With(logger, "caller", log.DefaultCaller)
-	}
-
-	// Determine which OpenTracing tracer to use. We'll pass the tracer to all the
-	// components that use it, as a dependency.
-	var tracer stdopentracing.Tracer
-	{
-		if *zipkinV1URL != "" && *zipkinV2URL == "" {
-			logger.Log("tracer", "Zipkin", "type", "OpenTracing", "URL", *zipkinV1URL)
-			collector, err := zipkinot.NewHTTPCollector(*zipkinV1URL)
-			if err != nil {
-				logger.Log("err", err)
-				os.Exit(1)
-			}
-			defer collector.Close()
-			var (
-				debug       = false
-				hostPort    = "localhost:80"
-				serviceName = "addsvc"
-			)
-			recorder := zipkinot.NewRecorder(collector, debug, hostPort, serviceName)
-			tracer, err = zipkinot.NewTracer(recorder)
-			if err != nil {
-				logger.Log("err", err)
-				os.Exit(1)
-			}
-		} else if *lightstepToken != "" {
-			logger.Log("tracer", "LightStep") // probably don't want to print out the token :)
-			tracer = lightstep.NewTracer(lightstep.Options{
-				AccessToken: *lightstepToken,
-			})
-			defer lightstep.FlushLightStepTracer(tracer)
-		} else if *appdashAddr != "" {
-			logger.Log("tracer", "Appdash", "addr", *appdashAddr)
-			tracer = appdashot.NewTracer(appdash.NewRemoteCollector(*appdashAddr))
-		} else {
-			tracer = stdopentracing.GlobalTracer() // no-op
-		}
-	}
-
-	var zipkinTracer *zipkin.Tracer
-	{
-		var (
-			err           error
-			hostPort      = "localhost:80"
-			serviceName   = "addsvc"
-			useNoopTracer = (*zipkinV2URL == "")
-			reporter      = zipkinhttp.NewReporter(*zipkinV2URL)
-		)
-		defer reporter.Close()
-		zEP, _ := zipkin.NewEndpoint(serviceName, hostPort)
-		zipkinTracer, err = zipkin.NewTracer(
-			reporter, zipkin.WithLocalEndpoint(zEP), zipkin.WithNoopTracer(useNoopTracer),
-		)
-		if err != nil {
-			logger.Log("err", err)
-			os.Exit(1)
-		}
-		if !useNoopTracer {
-			logger.Log("tracer", "Zipkin", "type", "Native", "URL", *zipkinV2URL)
-		}
 	}
 
 	// Create the (sparse) metrics we'll use in the service. They, too, are
@@ -152,8 +80,8 @@ func main() {
 	// them to ports or anything yet; we'll do that next.
 	var (
 		service     = addservice.New(logger, ints, chars)
-		endpoints   = addendpoint.New(service, logger, duration, tracer, zipkinTracer)
-		httpHandler = addtransport.NewHTTPHandler(endpoints, tracer, zipkinTracer, logger)
+		endpoints   = addendpoint.New(service, logger, duration)
+		httpHandler = addtransport.NewHTTPHandler(endpoints, logger)
 	)
 
 	// Now we're to the part of the func main where we want to start actually
