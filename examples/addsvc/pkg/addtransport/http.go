@@ -49,11 +49,11 @@ func NewHTTPHandler(endpoints addendpoint.Endpoints, logger log.Logger) http.Han
 	return m
 }
 
-// NewHTTPClient returns an AddService backed by an HTTP server living at the
+// MakeClientEndpoints returns an AddService backed by an HTTP server living at the
 // remote instance. We expect instance to come from a service discovery system,
 // so likely of the form "host:port". We bake-in certain middlewares,
 // implementing the client library pattern.
-func NewHTTPClient(instance string, logger log.Logger) (addservice.Service, error) {
+func MakeClientEndpoints(instance string, logger log.Logger) (addservice.Service, error) {
 	// Quickly sanitize the instance string.
 	if !strings.HasPrefix(instance, "http") {
 		instance = "http://" + instance

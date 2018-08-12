@@ -40,7 +40,7 @@ func main() {
 		err error
 	)
 	if *httpAddr != "" {
-		svc, err = addtransport.NewHTTPClient(*httpAddr, log.NewNopLogger())
+		svc, err = addtransport.MakeClientEndpoints(*httpAddr, log.NewNopLogger())
 	} else {
 		fmt.Fprintf(os.Stderr, "error: no remote address specified\n")
 		os.Exit(1)

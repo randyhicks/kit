@@ -25,9 +25,9 @@ type Endpoints struct {
 	ConcatEndpoint endpoint.Endpoint
 }
 
-// New returns a Endpoints that wraps the provided server, and wires in all of the
+// MakeServerEndpoints returns a Endpoints that wraps the provided server, and wires in all of the
 // expected endpoint middlewares via the various parameters.
-func New(svc addservice.Service, logger log.Logger, duration metrics.Histogram) Endpoints {
+func MakeServerEndpoints(svc addservice.Service, logger log.Logger, duration metrics.Histogram) Endpoints {
 	var sumEndpoint endpoint.Endpoint
 	{
 		sumEndpoint = MakeSumEndpoint(svc)

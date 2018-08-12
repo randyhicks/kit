@@ -80,7 +80,7 @@ func main() {
 	// them to ports or anything yet; we'll do that next.
 	var (
 		service     = addservice.New(logger, ints, chars)
-		endpoints   = addendpoint.New(service, logger, duration)
+		endpoints   = addendpoint.MakeServerEndpoints(service, logger, duration)
 		httpHandler = addtransport.NewHTTPHandler(endpoints, logger)
 	)
 
