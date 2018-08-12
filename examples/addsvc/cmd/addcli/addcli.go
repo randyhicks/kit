@@ -11,7 +11,7 @@ import (
 	"github.com/go-kit/kit/log"
 
 	"github.com/randyhicks/kit/examples/addsvc/pkg/addservice"
-	"github.com/randyhicks/kit/examples/addsvc/pkg/addtransport"
+	"github.com/randyhicks/kit/examples/addsvc/pkg/addsvc"
 )
 
 func main() {
@@ -40,7 +40,7 @@ func main() {
 		err error
 	)
 	if *httpAddr != "" {
-		svc, err = addtransport.MakeClientEndpoints(*httpAddr, log.NewNopLogger())
+		svc, err = addsvc.MakeClientEndpoints(*httpAddr, log.NewNopLogger())
 	} else {
 		fmt.Fprintf(os.Stderr, "error: no remote address specified\n")
 		os.Exit(1)

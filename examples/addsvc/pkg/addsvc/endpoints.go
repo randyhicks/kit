@@ -1,7 +1,9 @@
-package addendpoint
+package addsvc
 
 import (
 	"context"
+	"net/url"
+	"strings"
 	"time"
 
 	"golang.org/x/time/rate"
@@ -13,8 +15,8 @@ import (
 	"github.com/go-kit/kit/log"
 	"github.com/go-kit/kit/metrics"
 	"github.com/go-kit/kit/ratelimit"
-
-	"github.com/go-kit/kit/examples/addsvc/pkg/addservice"
+	httptransport "github.com/go-kit/kit/transport/http"
+	"github.com/randyhicks/kit/examples/addsvc/pkg/addservice"
 )
 
 // Endpoints collects all of the endpoints that compose an add service. It's meant to
@@ -48,6 +50,83 @@ func MakeServerEndpoints(svc addservice.Service, logger log.Logger, duration met
 		SumEndpoint:    sumEndpoint,
 		ConcatEndpoint: concatEndpoint,
 	}
+}
+
+// MakeClientEndpoints returns an AddService backed by an HTTP server living at the
+// remote instance. We expect instance to come from a service discovery system,
+// so likely of the form "host:port". We bake-in certain middlewares,
+// implementing the client library pattern.
+func MakeClientEndpoints(instance string, logger log.Logger) (Endpoints, error) {
+	// Quickly sanitize the instance string.
+	if !strings.HasPrefix(instance, "http") {
+		instance = "http://" + instance
+	}
+	u, err := url.Parse(instance)
+	if err != nil {
+		return Endpoints{}, err
+	}
+
+	// We construct a single ratelimiter middleware, to limit the total outgoing
+	// QPS from this client to all methods on the remote instance. We also
+	// construct per-endpoint circuitbreaker middlewares to demonstrate how
+	// that's done, although they could easily be combined into a single breaker
+	// for the entire remote instance, too.
+	limiter := ratelimit.NewErroringLimiter(rate.NewLimiter(rate.Every(time.Second), 100))
+
+	// global client middlewares
+	options := []httptransport.ClientOption{}
+
+	// Each individual endpoint is an http/transport.Client (which implements
+	// endpoint.Endpoint) that gets wrapped with various middlewares. If you
+	// made your own client library, you'd do this work there, so your server
+	// could rely on a consistent set of client behavior.
+	var sumEndpoint endpoint.Endpoint
+	{
+		sumEndpoint = httptransport.NewClient(
+			"POST",
+			copyURL(u, "/sum"),
+			encodeHTTPGenericRequest,
+			decodeHTTPSumResponse,
+			options...,
+		).Endpoint()
+		sumEndpoint = limiter(sumEndpoint)
+		sumEndpoint = circuitbreaker.Gobreaker(gobreaker.NewCircuitBreaker(gobreaker.Settings{
+			Name:    "Sum",
+			Timeout: 30 * time.Second,
+		}))(sumEndpoint)
+	}
+
+	// The Concat endpoint is the same thing, with slightly different
+	// middlewares to demonstrate how to specialize per-endpoint.
+	var concatEndpoint endpoint.Endpoint
+	{
+		concatEndpoint = httptransport.NewClient(
+			"POST",
+			copyURL(u, "/concat"),
+			encodeHTTPGenericRequest,
+			decodeHTTPConcatResponse,
+			options...,
+		).Endpoint()
+		concatEndpoint = limiter(concatEndpoint)
+		concatEndpoint = circuitbreaker.Gobreaker(gobreaker.NewCircuitBreaker(gobreaker.Settings{
+			Name:    "Concat",
+			Timeout: 10 * time.Second,
+		}))(concatEndpoint)
+	}
+
+	// Returning the endpoint.Set as a service.Service relies on the
+	// endpoint.Set implementing the Service methods. That's just a simple bit
+	// of glue code.
+	return Endpoints{
+		SumEndpoint:    sumEndpoint,
+		ConcatEndpoint: concatEndpoint,
+	}, nil
+}
+
+func copyURL(base *url.URL, path string) *url.URL {
+	next := *base
+	next.Path = path
+	return &next
 }
 
 // Sum implements the service interface, so Set may be used as a service.

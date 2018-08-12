@@ -1,4 +1,4 @@
-package addendpoint
+package addsvc
 
 import (
 	"context"

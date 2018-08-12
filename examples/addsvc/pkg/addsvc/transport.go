@@ -1,4 +1,4 @@
-package addtransport
+package addsvc
 
 import (
 	"bytes"
@@ -7,27 +7,17 @@ import (
 	"errors"
 	"io/ioutil"
 	"net/http"
-	"net/url"
-	"strings"
-	"time"
 
-	"golang.org/x/time/rate"
-
-	"github.com/sony/gobreaker"
-
-	"github.com/go-kit/kit/circuitbreaker"
 	"github.com/go-kit/kit/endpoint"
 	"github.com/go-kit/kit/log"
-	"github.com/go-kit/kit/ratelimit"
 	httptransport "github.com/go-kit/kit/transport/http"
 
-	"github.com/randyhicks/kit/examples/addsvc/pkg/addendpoint"
 	"github.com/randyhicks/kit/examples/addsvc/pkg/addservice"
 )
 
 // NewHTTPHandler returns an HTTP handler that makes a set of endpoints
 // available on predefined paths.
-func NewHTTPHandler(endpoints addendpoint.Endpoints, logger log.Logger) http.Handler {
+func NewHTTPHandler(e Endpoints, logger log.Logger) http.Handler {
 	options := []httptransport.ServerOption{
 		httptransport.ServerErrorEncoder(errorEncoder),
 		httptransport.ServerErrorLogger(logger),
@@ -35,95 +25,18 @@ func NewHTTPHandler(endpoints addendpoint.Endpoints, logger log.Logger) http.Han
 
 	m := http.NewServeMux()
 	m.Handle("/sum", httptransport.NewServer(
-		endpoints.SumEndpoint,
+		e.SumEndpoint,
 		decodeHTTPSumRequest,
 		encodeHTTPGenericResponse,
 		options...,
 	))
 	m.Handle("/concat", httptransport.NewServer(
-		endpoints.ConcatEndpoint,
+		e.ConcatEndpoint,
 		decodeHTTPConcatRequest,
 		encodeHTTPGenericResponse,
 		options...,
 	))
 	return m
-}
-
-// MakeClientEndpoints returns an AddService backed by an HTTP server living at the
-// remote instance. We expect instance to come from a service discovery system,
-// so likely of the form "host:port". We bake-in certain middlewares,
-// implementing the client library pattern.
-func MakeClientEndpoints(instance string, logger log.Logger) (addservice.Service, error) {
-	// Quickly sanitize the instance string.
-	if !strings.HasPrefix(instance, "http") {
-		instance = "http://" + instance
-	}
-	u, err := url.Parse(instance)
-	if err != nil {
-		return nil, err
-	}
-
-	// We construct a single ratelimiter middleware, to limit the total outgoing
-	// QPS from this client to all methods on the remote instance. We also
-	// construct per-endpoint circuitbreaker middlewares to demonstrate how
-	// that's done, although they could easily be combined into a single breaker
-	// for the entire remote instance, too.
-	limiter := ratelimit.NewErroringLimiter(rate.NewLimiter(rate.Every(time.Second), 100))
-
-	// global client middlewares
-	options := []httptransport.ClientOption{}
-
-	// Each individual endpoint is an http/transport.Client (which implements
-	// endpoint.Endpoint) that gets wrapped with various middlewares. If you
-	// made your own client library, you'd do this work there, so your server
-	// could rely on a consistent set of client behavior.
-	var sumEndpoint endpoint.Endpoint
-	{
-		sumEndpoint = httptransport.NewClient(
-			"POST",
-			copyURL(u, "/sum"),
-			encodeHTTPGenericRequest,
-			decodeHTTPSumResponse,
-			options...,
-		).Endpoint()
-		sumEndpoint = limiter(sumEndpoint)
-		sumEndpoint = circuitbreaker.Gobreaker(gobreaker.NewCircuitBreaker(gobreaker.Settings{
-			Name:    "Sum",
-			Timeout: 30 * time.Second,
-		}))(sumEndpoint)
-	}
-
-	// The Concat endpoint is the same thing, with slightly different
-	// middlewares to demonstrate how to specialize per-endpoint.
-	var concatEndpoint endpoint.Endpoint
-	{
-		concatEndpoint = httptransport.NewClient(
-			"POST",
-			copyURL(u, "/concat"),
-			encodeHTTPGenericRequest,
-			decodeHTTPConcatResponse,
-			options...,
-		).Endpoint()
-		concatEndpoint = limiter(concatEndpoint)
-		concatEndpoint = circuitbreaker.Gobreaker(gobreaker.NewCircuitBreaker(gobreaker.Settings{
-			Name:    "Concat",
-			Timeout: 10 * time.Second,
-		}))(concatEndpoint)
-	}
-
-	// Returning the endpoint.Set as a service.Service relies on the
-	// endpoint.Set implementing the Service methods. That's just a simple bit
-	// of glue code.
-	return addendpoint.Endpoints{
-		SumEndpoint:    sumEndpoint,
-		ConcatEndpoint: concatEndpoint,
-	}, nil
-}
-
-func copyURL(base *url.URL, path string) *url.URL {
-	next := *base
-	next.Path = path
-	return &next
 }
 
 func errorEncoder(_ context.Context, err error, w http.ResponseWriter) {
@@ -155,7 +68,7 @@ type errorWrapper struct {
 // JSON-encoded sum request from the HTTP request body. Primarily useful in a
 // server.
 func decodeHTTPSumRequest(_ context.Context, r *http.Request) (interface{}, error) {
-	var req addendpoint.SumRequest
+	var req SumRequest
 	err := json.NewDecoder(r.Body).Decode(&req)
 	return req, err
 }
@@ -164,7 +77,7 @@ func decodeHTTPSumRequest(_ context.Context, r *http.Request) (interface{}, erro
 // JSON-encoded concat request from the HTTP request body. Primarily useful in a
 // server.
 func decodeHTTPConcatRequest(_ context.Context, r *http.Request) (interface{}, error) {
-	var req addendpoint.ConcatRequest
+	var req ConcatRequest
 	err := json.NewDecoder(r.Body).Decode(&req)
 	return req, err
 }
@@ -178,7 +91,7 @@ func decodeHTTPSumResponse(_ context.Context, r *http.Response) (interface{}, er
 	if r.StatusCode != http.StatusOK {
 		return nil, errors.New(r.Status)
 	}
-	var resp addendpoint.SumResponse
+	var resp SumResponse
 	err := json.NewDecoder(r.Body).Decode(&resp)
 	return resp, err
 }
@@ -192,7 +105,7 @@ func decodeHTTPConcatResponse(_ context.Context, r *http.Response) (interface{},
 	if r.StatusCode != http.StatusOK {
 		return nil, errors.New(r.Status)
 	}
-	var resp addendpoint.ConcatResponse
+	var resp ConcatResponse
 	err := json.NewDecoder(r.Body).Decode(&resp)
 	return resp, err
 }

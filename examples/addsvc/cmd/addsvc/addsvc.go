@@ -18,9 +18,8 @@ import (
 	"github.com/go-kit/kit/metrics"
 	"github.com/go-kit/kit/metrics/prometheus"
 
-	"github.com/randyhicks/kit/examples/addsvc/pkg/addendpoint"
 	"github.com/randyhicks/kit/examples/addsvc/pkg/addservice"
-	"github.com/randyhicks/kit/examples/addsvc/pkg/addtransport"
+	"github.com/randyhicks/kit/examples/addsvc/pkg/addsvc"
 )
 
 func main() {
@@ -80,8 +79,8 @@ func main() {
 	// them to ports or anything yet; we'll do that next.
 	var (
 		service     = addservice.New(logger, ints, chars)
-		endpoints   = addendpoint.MakeServerEndpoints(service, logger, duration)
-		httpHandler = addtransport.NewHTTPHandler(endpoints, logger)
+		endpoints   = addsvc.MakeServerEndpoints(service, logger, duration)
+		httpHandler = addsvc.NewHTTPHandler(endpoints, logger)
 	)
 
 	// Now we're to the part of the func main where we want to start actually
