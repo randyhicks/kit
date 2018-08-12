@@ -2,6 +2,7 @@ package addservice
 
 import (
 	"context"
+	"time"
 
 	"github.com/go-kit/kit/log"
 	"github.com/go-kit/kit/metrics"
@@ -24,16 +25,16 @@ type loggingMiddleware struct {
 }
 
 func (mw loggingMiddleware) Sum(ctx context.Context, a, b int) (v int, err error) {
-	defer func() {
-		mw.logger.Log("method", "Sum", "a", a, "b", b, "v", v, "err", err)
-	}()
+	defer func(begin time.Time) {
+		mw.logger.Log("method", "Sum", "a", a, "b", b, "v", v, "took", time.Since(begin), "err", err)
+	}(time.Now())
 	return mw.next.Sum(ctx, a, b)
 }
 
 func (mw loggingMiddleware) Concat(ctx context.Context, a, b string) (v string, err error) {
-	defer func() {
-		mw.logger.Log("method", "Concat", "a", a, "b", b, "v", v, "err", err)
-	}()
+	defer func(begin time.Time) {
+		mw.logger.Log("method", "Concat", "a", a, "b", b, "v", v, "took", time.Since(begin), "err", err)
+	}(time.Now())
 	return mw.next.Concat(ctx, a, b)
 }
 

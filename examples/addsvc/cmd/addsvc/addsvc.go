@@ -87,7 +87,7 @@ func main() {
 
 	var (
 		endpoints   = addsvc.MakeServerEndpoints(s, duration)
-		httpHandler = addsvc.NewHTTPHandler(endpoints, log.With(logger, "component", "HTTP"))
+		httpHandler = addsvc.MakeHTTPHandler(endpoints, log.With(logger, "component", "HTTP"))
 	)
 
 	// Now we're to the part of the func main where we want to start actually

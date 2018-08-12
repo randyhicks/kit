@@ -34,14 +34,14 @@ func MakeServerEndpoints(svc addservice.Service, duration metrics.Histogram) End
 		sumEndpoint = MakeSumEndpoint(svc)
 		sumEndpoint = ratelimit.NewErroringLimiter(rate.NewLimiter(rate.Every(time.Second), 1))(sumEndpoint)
 		sumEndpoint = circuitbreaker.Gobreaker(gobreaker.NewCircuitBreaker(gobreaker.Settings{}))(sumEndpoint)
-		sumEndpoint = InstrumentingMiddleware(duration.With("method", "Sum"))(sumEndpoint)
+		// sumEndpoint = InstrumentingMiddleware(duration.With("method", "Sum"))(sumEndpoint)
 	}
 	var concatEndpoint endpoint.Endpoint
 	{
 		concatEndpoint = MakeConcatEndpoint(svc)
 		concatEndpoint = ratelimit.NewErroringLimiter(rate.NewLimiter(rate.Every(time.Second), 100))(concatEndpoint)
 		concatEndpoint = circuitbreaker.Gobreaker(gobreaker.NewCircuitBreaker(gobreaker.Settings{}))(concatEndpoint)
-		concatEndpoint = InstrumentingMiddleware(duration.With("method", "Concat"))(concatEndpoint)
+		// concatEndpoint = InstrumentingMiddleware(duration.With("method", "Concat"))(concatEndpoint)
 	}
 	return Endpoints{
 		SumEndpoint:    sumEndpoint,
@@ -82,7 +82,7 @@ func MakeClientEndpoints(instance string) (Endpoints, error) {
 		sumEndpoint = httptransport.NewClient(
 			"POST",
 			copyURL(u, "/sum"),
-			encodeHTTPGenericRequest,
+			encodeRequest,
 			decodeHTTPSumResponse,
 			options...,
 		).Endpoint()
@@ -100,7 +100,7 @@ func MakeClientEndpoints(instance string) (Endpoints, error) {
 		concatEndpoint = httptransport.NewClient(
 			"POST",
 			copyURL(u, "/concat"),
-			encodeHTTPGenericRequest,
+			encodeRequest,
 			decodeHTTPConcatResponse,
 			options...,
 		).Endpoint()
@@ -166,12 +166,6 @@ func MakeConcatEndpoint(s addservice.Service) endpoint.Endpoint {
 	}
 }
 
-// compile time assertions for our response types implementing endpoint.Failer.
-var (
-	_ endpoint.Failer = SumResponse{}
-	_ endpoint.Failer = ConcatResponse{}
-)
-
 // SumRequest collects the request parameters for the Sum method.
 type SumRequest struct {
 	A, B int
@@ -184,7 +178,7 @@ type SumResponse struct {
 }
 
 // Failed implements endpoint.Failer.
-func (r SumResponse) Failed() error { return r.Err }
+func (r SumResponse) error() error { return r.Err }
 
 // ConcatRequest collects the request parameters for the Concat method.
 type ConcatRequest struct {
@@ -197,5 +191,4 @@ type ConcatResponse struct {
 	Err error  `json:"-"`
 }
 
-// Failed implements endpoint.Failer.
-func (r ConcatResponse) Failed() error { return r.Err }
+func (r ConcatResponse) error() error { return r.Err }
